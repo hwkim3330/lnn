@@ -270,7 +270,63 @@ hiddenStates.h0 = results.new_h0.data;
 
 ---
 
-## 8. Conclusion
+## 8. Distributed Learning (Swarm/Botnet Style)
+
+### 8.1 Architecture
+
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│  Tab 1  │     │  Tab 2  │     │  Tab N  │
+│ Browser │     │ Browser │     │ Browser │
+└────┬────┘     └────┬────┘     └────┬────┘
+     │               │               │
+     └───────────────┼───────────────┘
+                     │
+              ┌──────┴──────┐
+              │   Shared    │
+              │    LNN      │
+              │   Model     │
+              └─────────────┘
+```
+
+### 8.2 Federated Learning Approach
+
+For truly distributed deployment:
+
+1. **Local Training**: Each agent learns independently
+2. **Weight Collection**: Server collects model weights
+3. **Federated Averaging**: $W_{global} = \frac{1}{N}\sum_{i=1}^{N} W_i$
+4. **Broadcast**: Updated weights sent to all agents
+
+### 8.3 Swarm Learning Results
+
+| Round | Reward | τ Layer 0 | τ Layer 3 |
+|-------|--------|-----------|-----------|
+| 1 | 2.60 | 0.82 | 0.87 |
+| 2 | 4.00 | 0.43 | 0.87 |
+| 3 | 5.20 | 0.00 | 0.00 |
+
+**Key Observations:**
+- Reward increases with rounds (2.60 → 5.20)
+- τ adapts differently per layer
+- Shared model benefits from diverse experiences
+
+### 8.4 Implementation
+
+```python
+class SimpleSwarm:
+    def run_round_robin(self, num_rounds, steps_per_agent):
+        for round_idx in range(num_rounds):
+            for page in self.pages:  # Multiple tabs
+                state = self.get_screenshot(page)
+                action, x, y, log_prob, info = self.model.get_action(state)
+                reward, done = self.execute_action(page, action, x, y)
+                self.learner.store(state, action, log_prob, reward, ...)
+```
+
+---
+
+## 9. Conclusion
 
 We presented a practical implementation of Liquid Neural Networks for browser automation. The system demonstrates real-time τ adaptation, online learning capability, and browser deployment via WebAssembly. Our experiments show that LNN can learn adaptive temporal dynamics for sequential decision making in web environments.
 
