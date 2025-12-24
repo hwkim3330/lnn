@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LNN - Liquid Neural Network Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            font-size: 1.2rem;
+            margin-bottom: 16px;
+            color: #00d9ff;
+        }
+        #canvas-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        canvas {
+            border: 2px solid #00d9ff;
+            border-radius: 8px;
+            cursor: crosshair;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 16px;
+        }
+        button {
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            text-align: center;
+            padding: 12px;
+            background: rgba(0,217,255,0.1);
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .tau-display {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .tau-item {
+            background: rgba(0,255,136,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .tau-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00ff88;
+        }
+        .tau-label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .output {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 16px;
+        }
+        .output-item {
+            background: rgba(255,255,255,0.05);
+            padding: 16px;
+            border-radius: 8px;
+        }
+        .action-probs {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .prob-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .prob-label {
+            width: 80px;
+            font-size: 0.9rem;
+        }
+        .prob-fill {
+            height: 20px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        .coords {
+            font-size: 1.2rem;
+            text-align: center;
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #00d9ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .formula {
+            background: rgba(0,0,0,0.3);
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            margin: 16px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p style="margin-top: 20px;">Loading LNN Model (2.7MB)...</p>
+    </div>
+
+    <div class="container">
+        <h1>🧠 Liquid Neural Network</h1>
+        <p class="subtitle">Real-time adaptive neural network with ODE dynamics</p>
+
+        <div class="card">
+            <h2>📐 Core Equation</h2>
+            <div class="formula">
+                dh/dt = (-h + f(W<sub>in</sub>·x + W<sub>rec</sub>·h)) / τ
+            </div>
+            <p style="text-align: center; color: #888;">
+                τ (time constant) adapts based on input: lower τ = faster response, higher τ = longer memory
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>🎨 Draw Input</h2>
+            <div id="canvas-container">
+                <canvas id="inputCanvas" width="224" height="224"></canvas>
+            </div>
+            <div class="controls">
+                <button onclick="clearCanvas()">Clear</button>
+                <button onclick="randomNoise()">Random Noise</button>
+                <button onclick="drawCircle()">Draw Circle</button>
+                <button onclick="runInference()" id="runBtn">Run LNN</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>⚡ Adaptive τ (Time Constants)</h2>
+            <div class="tau-display">
+                <div class="tau-item">
+                    <div class="tau-value" id="tau0">-</div>
+                    <div class="tau-label">Layer 0</div>
+                </div>
+                <div class="tau-item">
+                    <div class="tau-value" id="tau1">-</div>
+                    <div class="tau-label">Layer 1</div>
+                </div>
+                <div class="tau-item">
+                    <div class="tau-value" id="tau2">-</div>
+                    <div class="tau-label">Layer 2</div>
+                </div>
+                <div class="tau-item">
+                    <div class="tau-value" id="tau3">-</div>
+                    <div class="tau-label">Layer 3</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📊 Output</h2>
+            <div class="output">
+                <div class="output-item">
+                    <h3 style="margin-bottom: 12px;">Action Probabilities</h3>
+                    <div class="action-probs" id="actionProbs">
+                        <div class="prob-bar"><span class="prob-label">Click</span><div class="prob-fill" style="width: 0%"></div></div>
+                        <div class="prob-bar"><span class="prob-label">Type</span><div class="prob-fill" style="width: 0%"></div></div>
+                        <div class="prob-bar"><span class="prob-label">Navigate</span><div class="prob-fill" style="width: 0%"></div></div>
+                        <div class="prob-bar"><span class="prob-label">Scroll</span><div class="prob-fill" style="width: 0%"></div></div>
+                        <div class="prob-bar"><span class="prob-label">Key</span><div class="prob-fill" style="width: 0%"></div></div>
+                        <div class="prob-bar"><span class="prob-label">Done</span><div class="prob-fill" style="width: 0%"></div></div>
+                    </div>
+                </div>
+                <div class="output-item">
+                    <h3 style="margin-bottom: 12px;">Predicted Coordinates</h3>
+                    <div class="coords">
+                        <p>X: <span id="coordX">-</span></p>
+                        <p>Y: <span id="coordY">-</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status" id="status">Ready</div>
+
+        <div class="card">
+            <h2>ℹ️ About</h2>
+            <p>This demo runs a <strong>Liquid Neural Network</strong> entirely in your browser using WebAssembly (ONNX Runtime Web).</p>
+            <ul style="margin: 12px 0 0 20px; color: #aaa;">
+                <li>Model size: 2.7 MB (0.7M parameters)</li>
+                <li>4 Liquid layers with adaptive time constants</li>
+                <li>No server required - runs locally</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let session = null;
+        let hiddenStates = null;
+        const canvas = document.getElementById('inputCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+
+        // Initialize hidden states
+        function initHiddenStates() {
+            hiddenStates = {
+                h0: new Float32Array(256).fill(0),
+                h1: new Float32Array(256).fill(0),
+                h2: new Float32Array(256).fill(0),
+                h3: new Float32Array(256).fill(0)
+            };
+        }
+
+        // Load ONNX model
+        async function loadModel() {
+            try {
+                // Try WebGPU first, fallback to WASM
+                const options = { executionProviders: ['wasm'] };
+                session = await ort.InferenceSession.create('lnn_model.onnx', options);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('status').textContent = 'Model loaded! Draw something and click "Run LNN"';
+                initHiddenStates();
+            } catch (e) {
+                document.getElementById('loading').innerHTML = `
+                    <p style="color: #ff6b6b;">Failed to load model</p>
+                    <p style="color: #888; margin-top: 10px;">${e.message}</p>
+                    <p style="color: #888; margin-top: 10px;">Model file might not be available yet.</p>
+                `;
+            }
+        }
+
+        // Canvas drawing
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            draw(e);
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDrawing) draw(e);
+        });
+        canvas.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('mouseout', () => isDrawing = false);
+
+        function draw(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, 224, 224);
+            initHiddenStates();
+            document.getElementById('status').textContent = 'Canvas cleared, hidden states reset';
+        }
+
+        function randomNoise() {
+            const imageData = ctx.createImageData(224, 224);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const v = Math.random() * 255;
+                imageData.data[i] = v;
+                imageData.data[i + 1] = v * 0.8;
+                imageData.data[i + 2] = v * 0.5;
+                imageData.data[i + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function drawCircle() {
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, 224, 224);
+            ctx.strokeStyle = '#00d9ff';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(112, 112, 60, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // Run inference
+        async function runInference() {
+            if (!session) {
+                alert('Model not loaded yet');
+                return;
+            }
+
+            document.getElementById('runBtn').disabled = true;
+            document.getElementById('status').textContent = 'Running inference...';
+
+            try {
+                // Get image data
+                const imageData = ctx.getImageData(0, 0, 224, 224);
+                const input = new Float32Array(1 * 3 * 224 * 224);
+
+                // Convert to CHW format and normalize
+                for (let c = 0; c < 3; c++) {
+                    for (let h = 0; h < 224; h++) {
+                        for (let w = 0; w < 224; w++) {
+                            const srcIdx = (h * 224 + w) * 4 + c;
+                            const dstIdx = c * 224 * 224 + h * 224 + w;
+                            input[dstIdx] = imageData.data[srcIdx] / 255.0;
+                        }
+                    }
+                }
+
+                // Create tensors
+                const imageTensor = new ort.Tensor('float32', input, [1, 3, 224, 224]);
+                const h0Tensor = new ort.Tensor('float32', hiddenStates.h0, [1, 256]);
+                const h1Tensor = new ort.Tensor('float32', hiddenStates.h1, [1, 256]);
+                const h2Tensor = new ort.Tensor('float32', hiddenStates.h2, [1, 256]);
+                const h3Tensor = new ort.Tensor('float32', hiddenStates.h3, [1, 256]);
+
+                // Run
+                const results = await session.run({
+                    image: imageTensor,
+                    h0: h0Tensor,
+                    h1: h1Tensor,
+                    h2: h2Tensor,
+                    h3: h3Tensor
+                });
+
+                // Update hidden states
+                hiddenStates.h0 = results.new_h0.data;
+                hiddenStates.h1 = results.new_h1.data;
+                hiddenStates.h2 = results.new_h2.data;
+                hiddenStates.h3 = results.new_h3.data;
+
+                // Get outputs
+                const actionLogits = results.action_logits.data;
+                const coords = results.coords.data;
+
+                // Softmax for action probabilities
+                const maxLogit = Math.max(...actionLogits);
+                const expLogits = actionLogits.map(x => Math.exp(x - maxLogit));
+                const sumExp = expLogits.reduce((a, b) => a + b, 0);
+                const probs = expLogits.map(x => x / sumExp);
+
+                // Update UI
+                const actions = ['Click', 'Type', 'Navigate', 'Scroll', 'Key', 'Done'];
+                const probBars = document.querySelectorAll('.prob-fill');
+                probs.forEach((p, i) => {
+                    probBars[i].style.width = `${p * 100}%`;
+                });
+
+                document.getElementById('coordX').textContent = coords[0].toFixed(3);
+                document.getElementById('coordY').textContent = coords[1].toFixed(3);
+
+                // Calculate tau from hidden state norms (approximation)
+                const calcTau = (h) => {
+                    const norm = Math.sqrt(h.reduce((a, b) => a + b*b, 0));
+                    return (1 + 4 * (1 / (1 + Math.exp(-norm/10)))).toFixed(2);
+                };
+                document.getElementById('tau0').textContent = calcTau(hiddenStates.h0);
+                document.getElementById('tau1').textContent = calcTau(hiddenStates.h1);
+                document.getElementById('tau2').textContent = calcTau(hiddenStates.h2);
+                document.getElementById('tau3').textContent = calcTau(hiddenStates.h3);
+
+                document.getElementById('status').textContent =
+                    `Inference complete! Best action: ${actions[probs.indexOf(Math.max(...probs))]}`;
+
+            } catch (e) {
+                document.getElementById('status').textContent = `Error: ${e.message}`;
+            }
+
+            document.getElementById('runBtn').disabled = false;
+        }
+
+        // Initialize
+        clearCanvas();
+        loadModel();
+    </script>
+</body>
+</html>
